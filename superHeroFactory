@@ -80,7 +80,6 @@ actor SuperHeros {
         null,
       ).0;
 
-      next -= 1;
     };
 
     exists
