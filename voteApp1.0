@@ -1,0 +1,201 @@
+import Nat32 "mo:base/Nat32";
+import Trie "mo:base/Trie";
+import Option "mo:base/Option";
+import List "mo:base/List";
+import Text "mo:base/Text";
+import Result "mo:base/Result";
+import Iter "mo:base/Iter";
+import Debug "mo:base/Debug";
+
+actor VoteApp {
+
+  public type wallet = {
+    username : Text;
+    balance : Nat;
+    nfts : List.List<Text>
+  };
+
+  public type walletId = Nat32;
+
+  private stable var next : walletId = 0;
+
+  private stable var wallets : Trie.Trie<walletId, wallet> = Trie.empty();
+
+  private func key(x : walletId) : Trie.Key<walletId> {
+    {hash = x; key = x}
+  };
+
+  public func createWallet(newWallet : wallet,) : async Result.Result<Nat32, Text>  {
+     if (newWallet.username == "") {
+            return #err("Username cannot be empty")
+        };
+
+    let id = next;
+    next += 1;
+    
+    wallets := Trie.replace(
+      wallets,
+      key(id),
+      Nat32.equal,
+      ?newWallet,
+    ).0;
+
+    return #ok(id)
+  };
+
+  public func showWallet(id : walletId) : async ? wallet {
+    let result = Trie.find(
+      wallets,
+      key(id),
+      Nat32.equal
+    );
+
+    return result
+  };
+
+   public func updateWallet (id:walletId, newWallet: wallet) : async Bool {
+    let result = Trie.find(
+      wallets,
+      key(id),
+      Nat32.equal
+    );
+
+    let exists = Option.isSome(result);
+
+    if(exists){
+      wallets := Trie.replace(
+        wallets,
+        key(id),
+        Nat32.equal,
+        ?newWallet,
+      ).0;
+    };
+
+    exists
+  };
+
+  public func deleteWallet (id:walletId, newWallet: wallet) : async Bool {
+    let result = Trie.find(
+      wallets,
+      key(id),
+      Nat32.equal
+    );
+
+    let exists = Option.isSome(result);
+
+    if(exists){
+      wallets := Trie.replace(
+        wallets,
+        key(id),
+        Nat32.equal,
+        null,
+      ).0;
+    };
+
+    exists
+  };
+
+  public type poll = {
+    id : Nat32;
+    owner : walletId; // Anketi oluşturan kullanıcının kimliği.
+    questions : List.List<question>;
+  };
+
+  public type question = {
+    text : Text;
+    answerType : Text; // 'Text', 'Nat' (sayısal) veya 'Bool' (evet/hayır) olabilir.
+    correctAnswer : Text; // Doğru cevap
+  };
+
+  private stable var polls : Trie.Trie<Nat32, poll> = Trie.empty();
+  private stable var nextPollId : Nat32 = 0;
+
+  public func createPoll(ownerId: walletId, questionsList: List.List<question>) : async Nat32 {
+    let pollId : Nat32 = nextPollId;
+    nextPollId += 1;
+
+    // Yeni anket oluştur
+    let newPoll : poll = {
+      id : Nat32 = pollId;
+      owner = ownerId;
+      questions = questionsList;
+    };
+
+    // Anketi kaydet
+    polls := Trie.replace(
+      polls,
+      key(pollId),
+      Nat32.equal,
+      ?newPoll,
+    ).0;
+
+    return pollId;
+  };
+
+  public func start(
+        ownerIdText: Text,      
+        numQuestionsText: Text,      
+        questionsInputs: List.List<(Text, Text, Text)>
+    ) : async Result.Result<Nat32, Text> {
+        // Validate input parameters
+        if (ownerIdText == "") {
+            return #err("Owner ID cannot be empty");
+        };
+
+        // Parse number of questions (if needed)
+        let numQuestions = switch (numQuestionsText) {
+            case (Text) { return #err("Invalid number of questions"); };
+            case (num) { num };
+        };
+
+        // Validate questions list
+        if (List.isNil(questionsInputs)) {
+            return #err("Questions list cannot be empty");
+        };
+
+        // Create questions list
+        var questionsList = List.nil<question>();
+
+        // Convert question inputs to questions
+        for (questionInput in List.toIter(questionsInputs)) {
+            let (questionText, answerType, correctAnswer) = questionInput;
+
+            // Additional validation
+            if (questionText == "" or answerType == "" or correctAnswer == "") {
+                return #err("Invalid question input");
+            };
+
+            let newQuestion : question = {
+                text = questionText;
+                answerType = answerType;
+                correctAnswer = correctAnswer;
+            };
+
+            questionsList := List.push(newQuestion, questionsList);
+        };
+
+        // Create poll and handle result
+        try {
+            // Attempt to create the poll
+            let pollResult = await createPoll(ownerIdText, questionsList);
+            
+            // Handle the result of poll creation
+            switch (pollResult) {
+                case (#ok(pollId)) { 
+                    Debug.print("Anket başarıyla oluşturuldu! Anket ID'si: " # Nat32.toText(pollId));
+                    return #ok(pollId);
+                };
+                case (#err(errorMsg)) {
+                    Debug.print("Poll creation failed: " # errorMsg);
+                    return #err(errorMsg);
+                };
+            };
+        } catch (e) {
+            // Capture and log the specific error
+            let errorMessage = "";
+            Debug.print("Unexpected error during poll creation: " # errorMessage);
+            return #err("Poll creation failed: " # errorMessage);
+        };
+    }
+
+};
